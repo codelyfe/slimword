@@ -2,7 +2,7 @@
 
 Slim WordPress is WordPress 7.1.4 with a SQLite database, a smaller admin, and updates that come from this GitHub repository instead of WordPress.org.
 
-Current Slim release: **1.0.12**  
+Current Slim release: **1.0.13**  
 Repository: [codelyfe/slimword](https://github.com/codelyfe/slimword)
 
 Plugins and themes still install the normal way. Core files stay in place so WordPress APIs keep working.
@@ -138,7 +138,7 @@ The WordPress About screen stays the current core page. Slim WordPress is shown 
 | `wp-content/plugins/sqlite-database-integration/` | MySQL-to-SQLite driver |
 | `wp-content/mu-plugins/slimword.php` | Bloat removal, welcome panel, salts, Site Health removal |
 | `wp-content/mu-plugins/slimword-guard.php` | Protection switch |
-| `wp-content/mu-plugins/slimword-discovery.php` | SEO, answer-engine, and generative-engine tags |
+| `wp-content/mu-plugins/slimword-discovery.php` | SEO, answer-engine, and generative-engine tags, plus Settings → Discovery |
 | `wp-content/mu-plugins/slimword-updates.php` | GitHub update check on a normal visit |
 | `wp-content/mu-plugins/slimword-cron.php` | Runs due tasks without `wp-cron.php` |
 | `wp-content/mu-plugins/slimword-comments.php` | Switch that disables comments |

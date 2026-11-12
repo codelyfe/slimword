@@ -5,6 +5,7 @@
  */
 
 add_action( 'wp_head', 'slimword_discovery_head', 5 );
+add_action( 'admin_menu', 'slimword_discovery_menu', 99 );
 add_filter( 'robots_txt', 'slimword_discovery_robots', 99, 2 );
 add_filter( 'wp_robots', 'slimword_discovery_wp_robots' );
 add_filter( 'wp_sitemaps_add_provider', 'slimword_discovery_hide_users', 10, 2 );
@@ -337,6 +338,112 @@ function slimword_discovery_security_txt() {
  * @param array<string, string> $attr Image attributes.
  * @return array<string, string>
  */
+/**
+ * Settings → Discovery.
+ */
+function slimword_discovery_menu() {
+	add_options_page(
+		__( 'Discovery' ),
+		__( 'Discovery' ),
+		'manage_options',
+		'slimword-discovery',
+		'slimword_discovery_page'
+	);
+}
+
+/**
+ * Show the SEO, answer-engine, and generative-engine output this site already has.
+ */
+function slimword_discovery_page() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to manage these options.' ), 403 );
+	}
+	$name  = get_bloginfo( 'name' );
+	$desc  = get_bloginfo( 'description' );
+	$logo  = (int) get_theme_mod( 'custom_logo' );
+	$email = get_option( 'admin_email' );
+	$pages = get_posts(
+		array(
+			'post_type'      => 'page',
+			'post_status'    => 'publish',
+			'posts_per_page' => 50,
+			'orderby'        => 'menu_order title',
+			'order'          => 'ASC',
+		)
+	);
+	$posts = get_posts(
+		array(
+			'post_type'      => 'post',
+			'post_status'    => 'publish',
+			'posts_per_page' => 20,
+		)
+	);
+	$rows = array(
+		array( __( 'Site name' ), $name !== '' ? $name : __( 'Not set' ) ),
+		array( __( 'Tagline, used as the home description' ), $desc !== '' ? $desc : __( 'Not set' ) ),
+		array( __( 'Home URL' ), home_url( '/' ) ),
+		array( __( 'Language' ), get_bloginfo( 'language' ) ? get_bloginfo( 'language' ) : 'en' ),
+		array( __( 'Logo' ), $logo ? __( 'Set' ) : __( 'Not set' ) ),
+		array( __( 'Public' ), '1' === (string) get_option( 'blog_public' ) ? __( 'Yes' ) : __( 'No, robots block the whole site' ) ),
+		array( __( 'Search and author pages' ), __( 'noindex' ) ),
+		array( __( 'User sitemap' ), __( 'Hidden' ) ),
+		array( __( 'Sitemap' ), home_url( '/wp-sitemap.xml' ) ),
+		array( __( 'llms.txt' ), home_url( '/llms.txt' ) ),
+		array( __( 'llms-full.txt' ), home_url( '/llms-full.txt' ) ),
+		array( __( 'security.txt' ), home_url( '/.well-known/security.txt' ) ),
+		array( __( 'Contact email' ), is_email( $email ) ? $email : __( 'Not set' ) ),
+	);
+	?>
+	<div class="wrap">
+		<h1><?php esc_html_e( 'Discovery' ); ?></h1>
+		<p><?php esc_html_e( 'These are the SEO, answer-engine, and generative-engine values this site is already publishing.' ); ?></p>
+		<table class="widefat striped">
+			<tbody>
+				<?php foreach ( $rows as $row ) : ?>
+					<tr>
+						<th style="width:28%"><?php echo esc_html( $row[0] ); ?></th>
+						<td><?php echo esc_html( $row[1] ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<h2><?php esc_html_e( 'SEO' ); ?></h2>
+		<p><?php esc_html_e( 'Every public page gets a meta description, Open Graph tags, Twitter tags, and schema.org JSON. Singular pages use the excerpt or the opening of the content. The home page uses the tagline. Images without alt text use the page title.' ); ?></p>
+
+		<h2><?php esc_html_e( 'AEO' ); ?></h2>
+		<p><?php esc_html_e( 'llms.txt lists published pages and the latest posts. llms-full.txt adds short excerpts. The home page also links to llms.txt with describedby.' ); ?></p>
+		<h3><?php esc_html_e( 'Pages in llms.txt' ); ?></h3>
+		<?php slimword_discovery_list( $pages ); ?>
+		<h3><?php esc_html_e( 'Posts in llms.txt' ); ?></h3>
+		<?php slimword_discovery_list( $posts ); ?>
+
+		<h2><?php esc_html_e( 'GEO' ); ?></h2>
+		<ul>
+			<li><?php esc_html_e( 'Organization and WebSite schema, including a site search action, on the home page.' ); ?></li>
+			<li><?php esc_html_e( 'Article schema on posts and WebPage schema on pages.' ); ?></li>
+			<li><?php esc_html_e( 'Training crawlers GPTBot, ClaudeBot, Google-Extended, Applebot-Extended, and CCBot may read only llms.txt and llms-full.txt.' ); ?></li>
+			<li><?php esc_html_e( 'Search crawlers PerplexityBot, ChatGPT-User, OAI-SearchBot, and Claude-SearchBot may read the public site.' ); ?></li>
+		</ul>
+	</div>
+	<?php
+}
+
+/**
+ * @param WP_Post[] $items Published content.
+ */
+function slimword_discovery_list( $items ) {
+	if ( ! $items ) {
+		echo '<p>' . esc_html__( 'None published.' ) . '</p>';
+		return;
+	}
+	echo '<ul>';
+	foreach ( $items as $item ) {
+		echo '<li><a href="' . esc_url( get_permalink( $item ) ) . '">' . esc_html( get_the_title( $item ) ) . '</a></li>';
+	}
+	echo '</ul>';
+}
+
 function slimword_discovery_alt( $attr ) {
 	if ( empty( $attr['alt'] ) && is_singular() ) {
 		$attr['alt'] = wp_strip_all_tags( get_the_title() );
