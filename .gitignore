@@ -1,0 +1,15 @@
+wp-config.php
+private/
+wp-content/uploads/
+wp-content/cache/
+wp-content/upgrade/
+wp-content/upgrade-temp-backup/
+wp-content/database/
+*.log
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+push.bat
+bump-version.ps1
+update-wordpress.ps1
