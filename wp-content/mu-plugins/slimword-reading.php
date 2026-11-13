@@ -78,5 +78,7 @@ html[data-a11y-pause-anim] #slimword-cookie{animation:auto!important}
 body:has(#slimword-cookie:not([hidden])) #a11y-widget-root{bottom:96px!important}
 body.admin-bar #a11y-widget-root{z-index:99999!important}
 ';
-	echo '<script>document.addEventListener("DOMContentLoaded",function(){var s=document.createElement("style");s.id="slimword-reading-fit";s.textContent=' . wp_json_encode( $css ) . ';document.head.appendChild(s);});</script>';
+	$tools = get_option( 'slimword_a11y_tools', array() );
+	$keep  = is_array( $tools ) ? $tools : array();
+	echo '<script>document.addEventListener("DOMContentLoaded",function(){var s=document.createElement("style");s.id="slimword-reading-fit";s.textContent=' . wp_json_encode( $css ) . ';document.head.appendChild(s);var keep=' . wp_json_encode( $keep ) . ';if(!keep.length)return;var n=0;var t=setInterval(function(){var root=document.getElementById("a11y-widget-root");var shadow=root&&root.shadowRoot;n++;if(!shadow){if(n>20)clearInterval(t);return;}clearInterval(t);shadow.querySelectorAll("input[id]").forEach(function(input){if(keep.indexOf(input.id)===-1){var row=input.closest(".row")||input.parentElement;if(row)row.style.display="none";}});},200);});</script>';
 }

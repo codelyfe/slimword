@@ -61,7 +61,65 @@ function slimword_page_cache_allowed() {
 	if ( ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) !== 'GET' || ! empty( $_GET ) ) {
 		return false;
 	}
+	if ( slimword_page_cache_skipped_path() ) {
+		return false;
+	}
+	if ( is_singular() && get_post_meta( get_queried_object_id(), '_slimword_nocache', true ) ) {
+		return false;
+	}
 	return true;
+}
+
+/**
+ * @return bool
+ */
+function slimword_page_cache_skipped_path() {
+	$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) parse_url( wp_unslash( $_SERVER['REQUEST_URI'] ), PHP_URL_PATH ) : '/';
+	$list = is_file( ABSPATH . 'private/cache/nocache.txt' ) ? (string) file_get_contents( ABSPATH . 'private/cache/nocache.txt' ) : "/cart\n/checkout\n/my-account";
+	foreach ( preg_split( '/\r\n|\r|\n/', $list ) as $line ) {
+		$line = trim( $line );
+		if ( $line !== '' && false !== strpos( $path, $line ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+add_action( 'add_meta_boxes', 'slimword_nocache_box' );
+add_action( 'save_post', 'slimword_nocache_save' );
+
+/**
+ * Editor box that keeps one page out of the page cache.
+ */
+function slimword_nocache_box() {
+	foreach ( get_post_types( array( 'public' => true ) ) as $type ) {
+		add_meta_box( 'slimword-nocache', __( 'Page cache' ), 'slimword_nocache_box_html', $type, 'side' );
+	}
+}
+
+/**
+ * @param WP_Post $post Current post.
+ */
+function slimword_nocache_box_html( $post ) {
+	wp_nonce_field( 'slimword_nocache', 'slimword_nocache_nonce' );
+	echo '<label><input type="checkbox" name="slimword_nocache" value="1" ' . checked( (bool) get_post_meta( $post->ID, '_slimword_nocache', true ), true, false ) . '> ' . esc_html__( 'Do not cache this page' ) . '</label>';
+}
+
+/**
+ * @param int $post_id Post ID.
+ */
+function slimword_nocache_save( $post_id ) {
+	if ( ! isset( $_POST['slimword_nocache_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['slimword_nocache_nonce'] ) ), 'slimword_nocache' ) ) {
+		return;
+	}
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	if ( ! empty( $_POST['slimword_nocache'] ) ) {
+		update_post_meta( $post_id, '_slimword_nocache', '1' );
+	} else {
+		delete_post_meta( $post_id, '_slimword_nocache' );
+	}
 }
 
 /**

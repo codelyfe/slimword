@@ -14,8 +14,13 @@ function slimword_response_headers() {
 	if ( headers_sent() ) {
 		return;
 	}
-	header( 'Permissions-Policy: geolocation=(), microphone=(), camera=()' );
-	header( 'Cross-Origin-Opener-Policy: same-origin-allow-popups' );
+	if ( slimword_flag( 'permissions' ) ) {
+		$policy = (string) get_option( 'slimword_permissions', 'geolocation=(), microphone=(), camera=()' );
+		header( 'Permissions-Policy: ' . $policy );
+	}
+	if ( slimword_flag( 'coop' ) ) {
+		header( 'Cross-Origin-Opener-Policy: same-origin-allow-popups' );
+	}
 	if ( is_ssl() && slimword_flag( 'hsts' ) ) {
 		$hsts = 'Strict-Transport-Security: max-age=31536000';
 		if ( slimword_flag( 'hsts_sub' ) ) {
@@ -155,6 +160,9 @@ add_filter(
 			delete_transient( 'slimword_captcha_' . $token );
 		}
 		if ( false === $expect || (string) $expect !== $answer ) {
+			if ( function_exists( 'slimword_error_note' ) ) {
+				slimword_error_note( 'Login check failed for ' . $username );
+			}
 			return new WP_Error( 'slimword_captcha', __( 'The check answer is not correct. Refresh the page for a new question.' ) );
 		}
 		return $user;
@@ -205,7 +213,10 @@ add_filter(
 		}
 		$key = 'slimword_login_ip_' . md5( slimword_client_address() );
 		$user_key = 'slimword_login_user_' . md5( strtolower( (string) $username ) );
-		if ( (int) get_transient( $key ) >= 8 || (int) get_transient( $user_key ) >= 8 ) {
+		if ( (int) get_transient( $key ) >= slimword_lock_limit() || (int) get_transient( $user_key ) >= slimword_lock_limit() ) {
+			if ( function_exists( 'slimword_error_note' ) ) {
+				slimword_error_note( 'Login locked for ' . $username );
+			}
 			return new WP_Error( 'slimword_locked', __( 'Too many attempts. Try again in a few minutes.' ) );
 		}
 		return $user;
@@ -225,9 +236,9 @@ add_action(
 		}
 		$key   = 'slimword_login_ip_' . md5( slimword_client_address() );
 		$count = (int) get_transient( $key );
-		set_transient( $key, $count + 1, 15 * MINUTE_IN_SECONDS );
+		set_transient( $key, $count + 1, slimword_lock_span() );
 		$user_key = 'slimword_login_user_' . md5( strtolower( (string) $username ) );
-		set_transient( $user_key, (int) get_transient( $user_key ) + 1, 15 * MINUTE_IN_SECONDS );
+		set_transient( $user_key, (int) get_transient( $user_key ) + 1, slimword_lock_span() );
 	},
 	10,
 	2
@@ -273,12 +284,95 @@ function slimword_render_protect_page() {
 			<label><input type="checkbox" name="slimword_flags[passwords]" value="1" <?php checked( slimword_flag( 'passwords' ) ); ?>> <?php esc_html_e( 'Turn off application passwords' ); ?></label><br>
 			<label><input type="checkbox" name="slimword_flags[hsts_sub]" value="1" <?php checked( slimword_flag( 'hsts_sub' ) ); ?>> <?php esc_html_e( 'Include subdomains in that header' ); ?></label><br>
 			<label><input type="checkbox" name="slimword_flags[referrer]" value="1" <?php checked( slimword_flag( 'referrer' ) ); ?>> <?php esc_html_e( 'Send a referrer policy' ); ?></label><br>
+			<label><input type="checkbox" name="slimword_flags[hsts]" value="1" <?php checked( slimword_flag( 'hsts' ) ); ?>> <?php esc_html_e( 'Send the strict-transport header on HTTPS' ); ?></label><br>
+			<label><input type="checkbox" name="slimword_flags[permissions]" value="1" <?php checked( slimword_flag( 'permissions' ) ); ?>> <?php esc_html_e( 'Send a permissions policy' ); ?></label><br>
+			<label><input type="checkbox" name="slimword_flags[coop]" value="1" <?php checked( slimword_flag( 'coop' ) ); ?>> <?php esc_html_e( 'Send the opener policy' ); ?></label><br>
 			<label><input type="checkbox" name="slimword_flags[csp]" value="1" <?php checked( slimword_flag( 'csp' ) ); ?>> <?php esc_html_e( 'Send a content security policy' ); ?></label>
+			<p><textarea class="large-text" name="slimword_permissions" rows="2"><?php echo esc_textarea( (string) get_option( 'slimword_permissions', 'geolocation=(), microphone=(), camera=()' ) ); ?></textarea></p>
 			<p><textarea class="large-text" name="slimword_csp" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_csp', "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:" ) ); ?></textarea></p>
+			<p><label><?php esc_html_e( 'Failed tries before a lock' ); ?> <input type="number" min="1" name="slimword_lock_tries" value="<?php echo esc_attr( (string) slimword_lock_limit() ); ?>"></label>
+			<label><?php esc_html_e( 'Lock minutes' ); ?> <input type="number" min="1" name="slimword_lock_minutes" value="<?php echo esc_attr( (string) max( 1, (int) ( slimword_lock_span() / MINUTE_IN_SECONDS ) ) ); ?>"></label></p>
 			<?php submit_button(); ?>
+		</form>
+		<h2><?php esc_html_e( 'Headers this site sends' ); ?></h2>
+		<ul>
+		<?php foreach ( slimword_header_lines() as $line ) : ?>
+			<li><code><?php echo esc_html( $line ); ?></code></li>
+		<?php endforeach; ?>
+		</ul>
+		<h2><?php esc_html_e( 'Login check' ); ?></h2>
+		<?php slimword_login_fields(); ?>
+		<h2><?php esc_html_e( 'Unlock' ); ?></h2>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php wp_nonce_field( 'slimword_unlock' ); ?>
+			<input type="hidden" name="action" value="slimword_unlock">
+			<input name="who" placeholder="<?php esc_attr_e( 'Address or account' ); ?>">
+			<?php submit_button( __( 'Unlock' ), 'secondary', 'submit', false ); ?>
 		</form>
 	</div>
 	<?php
+}
+
+/**
+ * @return int
+ */
+function slimword_lock_limit() {
+	$tries = (int) get_option( 'slimword_lock_tries', 8 );
+	return $tries > 0 ? $tries : 8;
+}
+
+/**
+ * @return int
+ */
+function slimword_lock_span() {
+	$minutes = (int) get_option( 'slimword_lock_minutes', 15 );
+	return max( 1, $minutes ) * MINUTE_IN_SECONDS;
+}
+
+/**
+ * Header lines the public site will send.
+ *
+ * @return string[]
+ */
+function slimword_header_lines() {
+	$lines = array();
+	if ( slimword_flag( 'permissions' ) ) {
+		$lines[] = 'Permissions-Policy: ' . (string) get_option( 'slimword_permissions', 'geolocation=(), microphone=(), camera=()' );
+	}
+	if ( slimword_flag( 'coop' ) ) {
+		$lines[] = 'Cross-Origin-Opener-Policy: same-origin-allow-popups';
+	}
+	if ( is_ssl() && slimword_flag( 'hsts' ) ) {
+		$line = 'Strict-Transport-Security: max-age=31536000';
+		if ( slimword_flag( 'hsts_sub' ) ) {
+			$line .= '; includeSubDomains';
+		}
+		$lines[] = $line;
+	}
+	if ( slimword_flag( 'referrer' ) ) {
+		$lines[] = 'Referrer-Policy: strict-origin-when-cross-origin';
+	}
+	if ( slimword_flag( 'csp' ) ) {
+		$lines[] = 'Content-Security-Policy: ' . (string) get_option( 'slimword_csp', '' );
+	}
+	return $lines;
+}
+
+add_action( 'admin_post_slimword_unlock', 'slimword_unlock' );
+
+/**
+ * Clear one address lock and one account lock.
+ */
+function slimword_unlock() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to manage these options.' ), 403 );
+	}
+	check_admin_referer( 'slimword_unlock' );
+	$who = isset( $_POST['who'] ) ? trim( (string) wp_unslash( $_POST['who'] ) ) : '';
+	delete_transient( 'slimword_login_ip_' . md5( $who ) );
+	delete_transient( 'slimword_login_user_' . md5( strtolower( $who ) ) );
+	wp_safe_redirect( admin_url( 'options-general.php?page=slimword-protect' ) );
+	exit;
 }
 
 /**
@@ -319,7 +413,7 @@ add_action(
 				'sanitize_callback' => static function ( $value ) {
 					$value = is_array( $value ) ? $value : array();
 					$out   = array();
-					foreach ( array( 'hsts', 'hsts_sub', 'referrer', 'csp', 'login', 'users', 'editor', 'passwords' ) as $name ) {
+					foreach ( array( 'hsts', 'hsts_sub', 'referrer', 'csp', 'permissions', 'coop', 'login', 'users', 'editor', 'passwords' ) as $name ) {
 						$out[ $name ] = isset( $value[ $name ] ) ? '1' : '0';
 					}
 					return $out;
@@ -327,6 +421,9 @@ add_action(
 			)
 		);
 		register_setting( 'slimword_protect', 'slimword_csp', array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ) );
+		register_setting( 'slimword_protect', 'slimword_permissions', array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ) );
+		register_setting( 'slimword_protect', 'slimword_lock_tries', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
+		register_setting( 'slimword_protect', 'slimword_lock_minutes', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
 	}
 );
 

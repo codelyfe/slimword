@@ -5,7 +5,33 @@
  */
 
 add_action( 'wp_head', 'slimword_favicon', 2 );
+add_action( 'init', 'slimword_cookie_block' );
 add_action( 'template_redirect', 'slimword_cookies_page', 0 );
+
+/**
+ * Cookie notice block for the editor.
+ */
+function slimword_cookie_block() {
+	if ( ! function_exists( 'register_block_type' ) ) {
+		return;
+	}
+	register_block_type(
+		'slimword/cookie-notice',
+		array(
+			'api_version'     => 3,
+			'title'           => __( 'Cookie notice' ),
+			'category'        => 'widgets',
+			'render_callback' => static function () {
+				$GLOBALS['slimword_cookie_block'] = true;
+				ob_start();
+				slimword_cookie_notice();
+				unset( $GLOBALS['slimword_cookie_block'] );
+				return (string) ob_get_clean();
+			},
+		)
+	);
+}
+
 add_action( 'admin_menu', 'slimword_cookie_menu', 99 );
 add_action( 'admin_init', 'slimword_cookie_settings' );
 
@@ -60,7 +86,29 @@ function slimword_cookie_settings() {
 			'default'           => array(),
 		)
 	);
-	register_setting( 'slimword_cookies', 'slimword_cookie_rows', array( 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ) );
+	register_setting(
+		'slimword_cookies',
+		'slimword_cookie_rows',
+		array(
+			'type'              => 'string',
+			'sanitize_callback' => static function ( $value ) {
+				$rows = array();
+				if ( is_array( $value ) ) {
+					foreach ( $value as $row ) {
+						if ( ! is_array( $row ) ) {
+							continue;
+						}
+						$name = sanitize_text_field( $row[0] ?? '' );
+						if ( $name === '' ) {
+							continue;
+						}
+						$rows[] = array( $name, sanitize_text_field( $row[1] ?? '' ), sanitize_text_field( $row[2] ?? '' ) );
+					}
+				}
+				return wp_json_encode( $rows );
+			},
+		)
+	);
 }
 
 /**
@@ -143,9 +191,41 @@ function slimword_cookie_page() {
 					</td>
 				</tr>
 			</table>
-			<p><label><?php esc_html_e( 'Cookie page rows. One line each: name | why | how long' ); ?><br>
-			<textarea class="large-text" rows="6" name="slimword_cookie_rows"><?php echo esc_textarea( (string) get_option( 'slimword_cookie_rows', '' ) ); ?></textarea></label></p>
+			<h2><?php esc_html_e( 'Preview' ); ?></h2>
+			<div id="slimword-cookie-preview" style="position:relative;padding:16px;background:#111;color:#fff;max-width:720px"></div>
+			<h2><?php esc_html_e( 'Cookie page rows' ); ?></h2>
+			<?php
+			$table = json_decode( (string) get_option( 'slimword_cookie_rows', '' ), true );
+			if ( ! is_array( $table ) ) {
+				$table = array();
+			}
+			for ( $i = 0; $i < 6; $i++ ) {
+				$row = isset( $table[ $i ] ) && is_array( $table[ $i ] ) ? $table[ $i ] : array( '', '', '' );
+				echo '<p><input name="slimword_cookie_rows[' . $i . '][0]" value="' . esc_attr( (string) ( $row[0] ?? '' ) ) . '" placeholder="' . esc_attr__( 'Cookie' ) . '"> ';
+				echo '<input class="regular-text" name="slimword_cookie_rows[' . $i . '][1]" value="' . esc_attr( (string) ( $row[1] ?? '' ) ) . '" placeholder="' . esc_attr__( 'Why' ) . '"> ';
+				echo '<input name="slimword_cookie_rows[' . $i . '][2]" value="' . esc_attr( (string) ( $row[2] ?? '' ) ) . '" placeholder="' . esc_attr__( 'How long' ) . '"></p>';
+			}
+			?>
 			<?php submit_button(); ?>
+			<script>
+			(function(){
+				var box=document.getElementById('slimword-cookie-preview');
+				function paint(){
+					var msg=document.getElementById('slimword-cookie-message');
+					var btn=document.getElementById('slimword-cookie-button');
+					var bg=document.querySelector('[name="slimword_cookie[background]"]');
+					var color=document.querySelector('[name="slimword_cookie[text]"]');
+					var bbg=document.querySelector('[name="slimword_cookie[button_bg]"]');
+					var btx=document.querySelector('[name="slimword_cookie[button_text]"]');
+					if(!box||!msg) return;
+					box.style.background=bg?bg.value:'#111';
+					box.style.color=color?color.value:'#fff';
+					box.innerHTML='<p>'+msg.value.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</p><button type="button" style="background:'+(bbg?bbg.value:'#fff')+';color:'+(btx?btx.value:'#111')+'">'+(btn?btn.value:'OK')+'</button> <button type="button">Reject</button>';
+				}
+				document.querySelector('form').addEventListener('input', paint);
+				paint();
+			})();
+			</script>
 		</form>
 	</div>
 	<?php
@@ -155,7 +235,10 @@ function slimword_cookie_page() {
  * Small notice until the visitor accepts it.
  */
 function slimword_cookie_notice() {
-	if ( is_admin() ) {
+	if ( is_admin() && empty( $GLOBALS['slimword_cookie_block'] ) ) {
+		return;
+	}
+	if ( empty( $GLOBALS['slimword_cookie_block'] ) && is_singular() && function_exists( 'has_block' ) && has_block( 'slimword/cookie-notice' ) ) {
 		return;
 	}
 	$opt = slimword_cookie_options();
@@ -183,7 +266,7 @@ function slimword_cookie_notice() {
 	</div>
 	<script>
 	(function(){
-		if (document.cookie.indexOf('slimword_consent=') !== -1) return;
+		if (/(?:^|; )slimword_consent=(?:accepted|rejected)(?:;|$)/.test(document.cookie)) return;
 		var box = document.getElementById('slimword-cookie');
 		var btn = document.getElementById('slimword-cookie-ok');
 		var no = document.getElementById('slimword-cookie-no');
@@ -225,12 +308,11 @@ function slimword_cookies_page() {
 	echo '<h1>' . esc_html__( 'Cookies' ) . '</h1>';
 	echo '<p>' . esc_html__( 'A cookie is a small note your browser keeps for this site. Slim WordPress does not use advertising or analytics cookies. The cookies below are the ones this site can set.' ) . '</p>';
 	echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Cookie' ) . '</th><th>' . esc_html__( 'Why it is set' ) . '</th><th>' . esc_html__( 'How long it lasts' ) . '</th></tr></thead><tbody>';
-	$saved = (string) get_option( 'slimword_cookie_rows', '' );
+	$saved = json_decode( (string) get_option( 'slimword_cookie_rows', '' ), true );
 	$rows  = array();
-	if ( '' !== trim( $saved ) ) {
-		foreach ( preg_split( '/\r\n|\r|\n/', $saved ) as $line ) {
-			$parts = array_map( 'trim', explode( '|', $line ) );
-			if ( count( $parts ) >= 3 ) {
+	if ( is_array( $saved ) ) {
+		foreach ( $saved as $parts ) {
+			if ( is_array( $parts ) && count( $parts ) >= 3 && $parts[0] !== '' ) {
 				$rows[] = $parts;
 			}
 		}

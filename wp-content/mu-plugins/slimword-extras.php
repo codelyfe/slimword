@@ -63,6 +63,54 @@ function slimword_error_note( $line ) {
 }
 
 add_action(
+	'wp_body_open',
+	static function () {
+		echo '<a class="skip-link screen-reader-text" href="#content" style="position:absolute;left:-999px">' . esc_html__( 'Skip to content' ) . '</a>';
+	},
+	1
+);
+
+add_action(
+	'wp_head',
+	static function () {
+		if ( ! is_user_logged_in() ) {
+			return;
+		}
+		$prefs = get_user_meta( get_current_user_id(), 'a11y_widget_prefs_v4', true );
+		if ( ! is_string( $prefs ) || $prefs === '' ) {
+			return;
+		}
+		echo '<script>try{localStorage.setItem("a11y_widget_prefs_v4",' . wp_json_encode( $prefs ) . ')}catch(e){}</script>';
+	},
+	1
+);
+
+add_action(
+	'wp_ajax_slimword_save_a11y',
+	static function () {
+		check_ajax_referer( 'slimword_a11y' );
+		$prefs = isset( $_POST['prefs'] ) ? (string) wp_unslash( $_POST['prefs'] ) : '';
+		if ( strlen( $prefs ) > 4000 ) {
+			wp_die( '0' );
+		}
+		update_user_meta( get_current_user_id(), 'a11y_widget_prefs_v4', $prefs );
+		wp_die( '1' );
+	}
+);
+
+add_action(
+	'wp_footer',
+	static function () {
+		if ( ! is_user_logged_in() || ! slimword_reading_enabled() ) {
+			return;
+		}
+		$nonce = wp_create_nonce( 'slimword_a11y' );
+		echo '<script>document.addEventListener("click",function(){setTimeout(function(){try{var v=localStorage.getItem("a11y_widget_prefs_v4")||"";if(v&&v!==window.slimwordA11ySent){window.slimwordA11ySent=v;var b=new FormData();b.append("action","slimword_save_a11y");b.append("_ajax_nonce",' . wp_json_encode( $nonce ) . ');b.append("prefs",v);fetch(' . wp_json_encode( admin_url( 'admin-ajax.php' ) ) . ',{method:"POST",body:b,credentials:"same-origin"})}}catch(e){}},400)},true);</script>';
+	},
+	99998
+);
+
+add_action(
 	'admin_menu',
 	static function () {
 		add_options_page( __( 'Slim log' ), __( 'Slim log' ), 'manage_options', 'slimword-log', 'slimword_render_log_page' );
@@ -75,6 +123,18 @@ add_action(
 	static function () {
 		register_setting( 'slimword_reading', 'slimword_reading_on', array( 'type' => 'string', 'sanitize_callback' => static function ( $value ) { return '1' === (string) $value ? '1' : '0'; } ) );
 		register_setting( 'slimword_reading', 'slimword_reading_corner', array( 'type' => 'string', 'sanitize_callback' => static function ( $value ) { return in_array( $value, array( 'left', 'right' ), true ) ? $value : 'left'; } ) );
+		register_setting(
+			'slimword_reading',
+			'slimword_a11y_tools',
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => static function ( $value ) {
+					$allowed = array( 'a11y-scale', 'a11y-dark', 'a11y-hc', 'a11y-spacing', 'a11y-dys', 'a11y-ul', 'a11y-focus', 'a11y-hideimg', 'a11y-mutevid', 'a11y-gray', 'a11y-anim', 'a11y-mask' );
+					$value   = is_array( $value ) ? $value : array();
+					return array_values( array_intersect( $allowed, $value ) );
+				},
+			)
+		);
 		register_setting( 'slimword_site', 'slimword_heartbeat', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
 		register_setting( 'slimword_site', 'slimword_maintenance', array( 'type' => 'string', 'sanitize_callback' => static function ( $value ) { return '1' === (string) $value ? '1' : '0'; } ) );
 	}
@@ -119,6 +179,27 @@ function slimword_render_log_page() {
 					<option value="right" <?php selected( get_option( 'slimword_reading_corner', 'left' ), 'right' ); ?>><?php esc_html_e( 'Right' ); ?></option>
 				</select>
 			</label></p>
+			<?php
+			$tools = get_option( 'slimword_a11y_tools', array() );
+			$tools = is_array( $tools ) && $tools ? $tools : array( 'a11y-scale', 'a11y-dark', 'a11y-hc', 'a11y-spacing', 'a11y-dys', 'a11y-ul', 'a11y-focus', 'a11y-hideimg', 'a11y-mutevid', 'a11y-gray', 'a11y-anim', 'a11y-mask' );
+			$labels = array(
+				'a11y-scale' => __( 'Text size' ),
+				'a11y-dark' => __( 'Dark mode' ),
+				'a11y-hc' => __( 'High contrast' ),
+				'a11y-spacing' => __( 'Text spacing' ),
+				'a11y-dys' => __( 'Dyslexia-friendly' ),
+				'a11y-ul' => __( 'Underline links' ),
+				'a11y-focus' => __( 'Focus' ),
+				'a11y-hideimg' => __( 'Hide images' ),
+				'a11y-mutevid' => __( 'Mute videos' ),
+				'a11y-gray' => __( 'Grayscale' ),
+				'a11y-anim' => __( 'Pause animations' ),
+				'a11y-mask' => __( 'Reading mask' ),
+			);
+			foreach ( $labels as $id => $label ) {
+				echo '<label style="display:inline-block;margin-right:12px"><input type="checkbox" name="slimword_a11y_tools[]" value="' . esc_attr( $id ) . '" ' . checked( in_array( $id, $tools, true ), true, false ) . '> ' . esc_html( $label ) . '</label>';
+			}
+			?>
 			<?php submit_button( __( 'Save panel' ) ); ?>
 		</form>
 		<form method="post" action="options.php">

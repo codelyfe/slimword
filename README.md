@@ -2,7 +2,7 @@
 
 Slim WordPress is WordPress 7.1.4 with a SQLite database, a smaller admin, and updates that come from this GitHub repository instead of WordPress.org.
 
-Current Slim release: **1.0.15**  
+Current Slim release: **1.0.16**  
 Repository: [codelyfe/slimword](https://github.com/codelyfe/slimword)
 
 Plugins and themes still install the normal way. Core files stay in place so WordPress APIs keep working.

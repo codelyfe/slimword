@@ -15,8 +15,12 @@ add_action(
 		if ( wp_doing_ajax() || wp_doing_cron() ) {
 			return;
 		}
+		$minutes = (int) get_option( 'slimword_check_minutes', 15 );
+		if ( $minutes < 1 ) {
+			return;
+		}
 		$checked = (int) get_site_transient( 'slimword_github_checked' );
-		if ( $checked && ( time() - $checked ) < 15 * MINUTE_IN_SECONDS ) {
+		if ( $checked && ( time() - $checked ) < $minutes * MINUTE_IN_SECONDS ) {
 			return;
 		}
 		slimword_check_github_updates( true );
@@ -86,6 +90,30 @@ function slimword_updates_screen() {
 		submit_button( __( 'Update both' ), 'primary', 'scope_both', false );
 		echo '</form>';
 	}
+	$error = (string) get_option( 'slimword_last_update_error', '' );
+	if ( $error !== '' ) {
+		echo '<div class="notice notice-error inline"><p>' . esc_html( $error ) . '</p></div>';
+	}
+	$http = (string) get_option( 'slimword_github_http', '' );
+	if ( $http !== '' && '200' !== $http ) {
+		echo '<p>' . esc_html( sprintf( __( 'GitHub status: %s' ), $http ) ) . '</p>';
+	}
+	$package_wp = (string) get_option( 'slimword_package_wp', '' );
+	if ( $package_wp !== '' && version_compare( $package_wp, wp_get_wp_version(), '>' ) ) {
+		echo '<p>' . esc_html( sprintf( __( 'This install is WordPress %1$s. The Slim package includes WordPress %2$s.' ), wp_get_wp_version(), $package_wp ) ) . '</p>';
+	}
+	echo '<form method="post" action="options.php">';
+	settings_fields( 'slimword_updates' );
+	echo '<p><label>' . esc_html__( 'Check GitHub every' ) . ' <input type="number" min="0" name="slimword_check_minutes" value="' . esc_attr( (string) get_option( 'slimword_check_minutes', 15 ) ) . '"> ' . esc_html__( 'minutes. Use 0 to turn checks off.' ) . '</label></p>';
+	submit_button( __( 'Save check' ), 'secondary', 'submit', false );
+	echo '</form>';
+	if ( is_dir( WP_CONTENT_DIR . '/mu-plugins-previous' ) ) {
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( 'slimword_restore_plugins' );
+		echo '<input type="hidden" name="action" value="slimword_restore_plugins" />';
+		submit_button( __( 'Put back the previous Slim files' ), 'secondary', 'submit', false );
+		echo '</form>';
+	}
 	$log = get_option( 'slimword_update_log', array() );
 	if ( is_array( $log ) && $log ) {
 		echo '<h3>' . esc_html__( 'Last update' ) . '</h3><ul>';
@@ -134,24 +162,39 @@ function slimword_github_release() {
 		)
 	);
 
+	$code = is_wp_error( $response ) ? $response->get_error_code() : (string) (int) wp_remote_retrieve_response_code( $response );
+	update_option( 'slimword_github_http', $code, false );
 	$found = null;
 	if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 		$tag  = isset( $data['tag_name'] ) ? ltrim( (string) $data['tag_name'], 'vV' ) : '';
-		$zip  = '';
+		$zip    = '';
+		$digest = '';
 		if ( ! empty( $data['assets'] ) && is_array( $data['assets'] ) ) {
 			foreach ( $data['assets'] as $asset ) {
 				$url = isset( $asset['browser_download_url'] ) ? (string) $asset['browser_download_url'] : '';
 				if ( '' !== $url && substr( $url, -4 ) === '.zip' ) {
-					$zip = $url;
+					$zip    = $url;
+					$digest = isset( $asset['digest'] ) ? (string) $asset['digest'] : '';
 					break;
 				}
 			}
 		}
 		if ( '' !== $tag && '' !== $zip ) {
+			$wp_file = wp_remote_get(
+				'https://raw.githubusercontent.com/' . SLIMWORD_GITHUB_REPO . '/v' . $tag . '/wp-includes/version.php',
+				array( 'timeout' => 12, 'headers' => array( 'User-Agent' => 'Slim-WordPress' ) )
+			);
+			$wp_in_package = '';
+			if ( ! is_wp_error( $wp_file ) && preg_match( "/\\\$wp_version\\s*=\\s*'([^']+)'/", (string) wp_remote_retrieve_body( $wp_file ), $wp_match ) ) {
+				$wp_in_package = $wp_match[1];
+				update_option( 'slimword_package_wp', $wp_in_package, false );
+			}
 			$found = array(
 				'version' => $tag,
 				'package' => $zip,
+				'digest'  => isset( $digest ) ? $digest : '',
+				'wp'      => $wp_in_package,
 			);
 		}
 	}
@@ -189,8 +232,10 @@ function slimword_apply_release() {
 	}
 	$result = slimword_run_requested_update( $scope );
 	if ( is_wp_error( $result ) ) {
+		update_option( 'slimword_last_update_error', $result->get_error_message(), false );
 		wp_die( esc_html( $result->get_error_message() ) );
 	}
+	delete_option( 'slimword_last_update_error' );
 	wp_safe_redirect( admin_url( 'update-core.php?slimword-updated=1' ) );
 	exit;
 }
@@ -234,7 +279,13 @@ function slimword_run_requested_update( $scope = 'both' ) {
 		return new WP_Error( 'slimword_release', __( 'GitHub did not return a Slim release.' ) );
 	}
 	slimword_update_note( 'Downloading Slim ' . $release['version'] . '.' );
-	$slim = slimword_download_zip( $release['package'] );
+	$sha  = '';
+	if ( ! empty( $release['digest'] ) && preg_match( '/^sha256:([a-f0-9]{64})$/i', (string) $release['digest'], $sum ) ) {
+		$sha = strtolower( $sum[1] );
+	} else {
+		slimword_update_note( 'GitHub did not publish a checksum for this zip.' );
+	}
+	$slim = slimword_download_zip( $release['package'], $sha );
 	if ( is_wp_error( $slim ) ) {
 		slimword_update_note( 'Slim download failed: ' . $slim->get_error_message() );
 		return $slim;
@@ -254,6 +305,12 @@ function slimword_run_requested_update( $scope = 'both' ) {
 		'README.md',
 	);
 	if ( version_compare( $package, $before, '>' ) ) {
+		$previous = WP_CONTENT_DIR . '/mu-plugins-previous';
+		if ( is_dir( WPMU_PLUGIN_DIR ) ) {
+			slimword_delete_tree( $previous );
+			rename( WPMU_PLUGIN_DIR, $previous );
+			wp_mkdir_p( WPMU_PLUGIN_DIR );
+		}
 		array_unshift( $slim_paths, 'wp-content/mu-plugins' );
 	} else {
 		slimword_update_note( 'Left mu-plugins in place because the package is not newer than ' . $before . '.' );
@@ -323,7 +380,33 @@ function slimword_backup_database() {
 	return $dest;
 }
 
+add_action(
+	'admin_init',
+	static function () {
+		register_setting( 'slimword_updates', 'slimword_check_minutes', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
+	}
+);
+add_action( 'admin_post_slimword_restore_plugins', 'slimword_restore_plugins' );
 add_action( 'admin_post_slimword_download_backup', 'slimword_download_backup' );
+
+/**
+ * Put the saved mu-plugins folder back.
+ */
+function slimword_restore_plugins() {
+	if ( ! current_user_can( 'update_core' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to update this site.' ), 403 );
+	}
+	check_admin_referer( 'slimword_restore_plugins' );
+	$previous = WP_CONTENT_DIR . '/mu-plugins-previous';
+	if ( ! is_dir( $previous ) ) {
+		wp_die( esc_html__( 'There is no previous Slim folder.' ) );
+	}
+	slimword_delete_tree( WPMU_PLUGIN_DIR );
+	rename( $previous, WPMU_PLUGIN_DIR );
+	slimword_update_note( 'Restored the previous Slim files.' );
+	wp_safe_redirect( admin_url( 'update-core.php' ) );
+	exit;
+}
 
 /**
  * Download one database copy.
@@ -348,10 +431,14 @@ function slimword_download_backup() {
  * @param string $url Zip URL.
  * @return string|WP_Error Path to the extracted wordpress directory.
  */
-function slimword_download_zip( $url ) {
+function slimword_download_zip( $url, $sha = '' ) {
 	$tmp = download_url( $url );
 	if ( is_wp_error( $tmp ) ) {
 		return $tmp;
+	}
+	if ( '' !== $sha && hash_file( 'sha256', $tmp ) !== $sha ) {
+		unlink( $tmp );
+		return new WP_Error( 'slimword_checksum', __( 'The download checksum did not match GitHub.' ) );
 	}
 	$work   = WP_CONTENT_DIR . '/upgrade/slimword-' . wp_generate_password( 8, false );
 	$result = unzip_file( $tmp, $work );

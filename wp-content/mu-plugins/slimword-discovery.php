@@ -10,7 +10,7 @@ add_action( 'wp_body_open', 'slimword_visible_breadcrumbs' );
  * Visible trail for the current page or post.
  */
 function slimword_visible_breadcrumbs() {
-	if ( ! is_singular() ) {
+	if ( '0' === (string) get_option( 'slimword_breadcrumbs', '1' ) || ! is_singular() ) {
 		return;
 	}
 	$post = get_queried_object();
@@ -23,7 +23,11 @@ function slimword_visible_breadcrumbs() {
 	foreach ( $crumbs as $crumb ) {
 		$links[] = '<a href="' . esc_url( $crumb['item'] ) . '">' . esc_html( $crumb['name'] ) . '</a>';
 	}
-	echo wp_kses_post( implode( ' / ', $links ) );
+	$sep = (string) get_option( 'slimword_breadcrumb_sep', '/' );
+	if ( ! in_array( $sep, array( '/', '>', '›' ), true ) ) {
+		$sep = '/';
+	}
+	echo wp_kses_post( implode( ' ' . $sep . ' ', $links ) );
 	echo '</nav>';
 }
 
@@ -38,6 +42,8 @@ function slimword_discovery_settings() {
 		register_setting( 'slimword_discovery', $option, array( 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ) );
 	}
 	register_setting( 'slimword_discovery', 'slimword_share_image', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
+	register_setting( 'slimword_discovery', 'slimword_breadcrumbs', array( 'type' => 'string', 'sanitize_callback' => static function ( $value ) { return '1' === (string) $value ? '1' : '0'; } ) );
+	register_setting( 'slimword_discovery', 'slimword_breadcrumb_sep', array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field' ) );
 }
 
 add_action( 'admin_menu', 'slimword_discovery_menu', 99 );
@@ -193,6 +199,8 @@ function slimword_discovery_title_parts( $parts ) {
 		$custom = get_post_meta( get_queried_object_id(), 'slimword_seo_title', true );
 		if ( is_string( $custom ) && $custom !== '' ) {
 			$parts['title'] = $custom;
+		} elseif ( has_excerpt( get_queried_object_id() ) ) {
+			$parts['title'] = wp_trim_words( get_the_excerpt( get_queried_object_id() ), 8, '' );
 		}
 	}
 	return $parts;
@@ -622,6 +630,14 @@ function slimword_discovery_page() {
 			<p><label><?php esc_html_e( 'Default share image attachment ID' ); ?> <input name="slimword_share_image" value="<?php echo esc_attr( (string) get_option( 'slimword_share_image', '' ) ); ?>"></label></p>
 			<p><label><?php esc_html_e( 'Training crawlers, one per line' ); ?><br><textarea name="slimword_train_bots" class="large-text" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_train_bots', '' ) ); ?></textarea></label></p>
 			<p><label><?php esc_html_e( 'Search crawlers, one per line' ); ?><br><textarea name="slimword_search_bots" class="large-text" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_search_bots', '' ) ); ?></textarea></label></p>
+			<p><label><input type="hidden" name="slimword_breadcrumbs" value="0"><input type="checkbox" name="slimword_breadcrumbs" value="1" <?php checked( '0' !== (string) get_option( 'slimword_breadcrumbs', '1' ) ); ?>> <?php esc_html_e( 'Show breadcrumbs' ); ?></label>
+			<label><?php esc_html_e( 'Separator' ); ?>
+				<select name="slimword_breadcrumb_sep">
+					<option value="/" <?php selected( get_option( 'slimword_breadcrumb_sep', '/' ), '/' ); ?>>/</option>
+					<option value=">" <?php selected( get_option( 'slimword_breadcrumb_sep', '/' ), '>' ); ?>>&gt;</option>
+					<option value="›" <?php selected( get_option( 'slimword_breadcrumb_sep', '/' ), '›' ); ?>>›</option>
+				</select>
+			</label></p>
 			<?php submit_button( __( 'Save discovery' ) ); ?>
 		</form>
 		<p><?php esc_html_e( 'These are the SEO, answer-engine, and generative-engine values this site is already publishing.' ); ?></p>
@@ -664,6 +680,15 @@ function slimword_discovery_page() {
 		<div style="max-width:480px;border:1px solid #dcdcde;background:#fff">
 			<?php if ( $share_image !== '' ) : ?>
 				<img src="<?php echo esc_url( $share_image ); ?>" alt="" style="display:block;width:100%;height:220px;object-fit:cover">
+			<?php endif; ?>
+			<?php if ( $front_id ) : ?>
+				<h2><?php esc_html_e( 'Markup' ); ?></h2>
+				<pre style="white-space:pre-wrap"><?php
+				$preview_post = get_post( $front_id );
+				if ( $preview_post instanceof WP_Post ) {
+					echo esc_html( wp_json_encode( array( 'breadcrumbs' => slimword_discovery_breadcrumbs( $preview_post ), 'faq' => slimword_discovery_faqs( $preview_post ) ), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
+				}
+				?></pre>
 			<?php endif; ?>
 			<div style="padding:12px 16px">
 				<div style="color:#646970;font-size:12px"><?php echo esc_html( wp_parse_url( home_url(), PHP_URL_HOST ) ); ?></div>
