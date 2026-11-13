@@ -29,6 +29,9 @@ function slimword_clear_cache() {
 	}
 	check_admin_referer( 'slimword_clear_cache' );
 	wp_cache_flush();
+	if ( function_exists( 'slimword_page_cache_flush' ) ) {
+		slimword_page_cache_flush();
+	}
 	wp_safe_redirect( admin_url( 'options-general.php?page=slimword-cache&cleared=1' ) );
 	exit;
 }

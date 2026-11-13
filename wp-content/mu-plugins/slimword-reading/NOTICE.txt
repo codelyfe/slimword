@@ -1,0 +1,17 @@
+This plugin includes code derived from A11y-Widget-Place-Anywhere
+https://github.com/codelyfe/A11y-Widget-Place-Anywhere
+
+Original work is licensed under the GNU General Public License v2.0.
+This modified distribution for Sellingit.org is also GPL-2.0-or-later.
+
+Changes for Sellingit.org (2026):
+- Packaged as a WordPress plugin (footer enqueue + Avada z-index compat)
+- Storefront branding updated to Sellingit.org
+- Avada-safe dark mode (no [class*=content] nukes)
+- No DOM body-wrapping skip-link (Fusion-safe)
+- FAB bottom-left so it does not collide with Woo floating cart
+- Grayscale does not apply filter on html (keeps sticky/fixed layouts)
+- Pause-animations is opt-in only (homepage product carousel keeps working)
+- Checkout / PayPal iframe areas protected from dark/HC paint
+- Skips Fusion Builder live edit + Customizer preview
+- Versioned asset loading

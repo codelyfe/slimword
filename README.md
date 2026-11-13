@@ -2,7 +2,7 @@
 
 Slim WordPress is WordPress 7.1.4 with a SQLite database, a smaller admin, and updates that come from this GitHub repository instead of WordPress.org.
 
-Current Slim release: **1.0.13**  
+Current Slim release: **1.0.14**  
 Repository: [codelyfe/slimword](https://github.com/codelyfe/slimword)
 
 Plugins and themes still install the normal way. Core files stay in place so WordPress APIs keep working.
@@ -87,7 +87,23 @@ The stock “Welcome to WordPress” panel is replaced. The new panel shows:
 
 ### Cache
 
-WordPress object cache is stored as files in `private/cache/object` by `wp-content/object-cache.php`. Plugins use the normal cache functions. Settings → Cache lists the group, key, size, and expiry, and **Clear cache** deletes the files.
+WordPress object cache is stored as files in `private/cache/object` by `wp-content/object-cache.php`. Plugins use the normal cache functions. Settings → Cache lists the group, key, size, and expiry, and **Clear cache** deletes those files and the saved pages.
+
+Public pages for visitors who are not logged in are also saved as HTML in `private/cache/pages` for 10 minutes. `wp-content/advanced-cache.php` serves a saved page before WordPress boots. Logged-in visits, searches, and addresses with a query string are not saved. Saving a post, switching the theme, or clicking **Clear cache** deletes the saved pages. `WP_CACHE` is on in `wp-config-sample.php` so that file is loaded.
+
+### Cookies
+
+Settings → Cookies controls the notice: on or off, message, button, link, placement, and colors. Clicking the button stores a `slimword_consent` cookie for 6 months. The notice stays hidden while that cookie is present.
+
+`/cookies/` explains every cookie this site sets: the consent cookie, the login cookies, and the comment cookies. It says there are no advertising or analytics cookies. If the link address in the setting is blank, the notice points at that page. A published page with the slug `cookies` is left as written.
+
+### Reading
+
+Public pages load the accessibility panel from [A11y Widget Place Anywhere](https://github.com/codelyfe/A11y-Widget-Place-Anywhere). The button is at the bottom left. Text size, contrast, spacing, links, grayscale, motion, and the rest of that panel stay in the browser. The panel moves up while the cookie notice is open, and those choices still apply on block themes. **Powered by** links to that repository.
+
+### Favicon
+
+If the site has a logo and no site icon, the logo is used as the browser icon.
 
 ### Comments
 
@@ -108,14 +124,20 @@ Settings → Protection is on until an admin turns it off. The switch is stored 
 - Hides author archives and the public user list from people who are not logged in
 - Uses one login error instead of saying whether the user exists
 - Stops an address for 15 minutes after 8 failed logins
+- Asks a new addition question on every login page load, and ignores a login that fills the hidden company field
 - Turns off the theme and plugin file editor and application passwords
 - Refuses requests for `wp-config.php`, `.env`, and `../` paths
+- Sends headers that turn off the camera, microphone, and location, and on HTTPS keeps later visits on HTTPS for one year
+
+A wrong math answer does not count toward the login lock. The hidden field is off screen, so people do not see it.
 
 It does not scan every request body or keep a bot database.
 
 ### Discovery
 
-Every public page gets a description, Open Graph and Twitter tags, and schema.org data for the site and the current page. Search engines use the normal WordPress sitemap. Answer and generative engines get `/llms.txt` and `/llms-full.txt`, linked from the page and from `robots.txt`. Training crawlers are limited to those two files. Search crawlers may read the public site. Author archives and search results stay out of the index. The files use this site’s name, description, pages, and posts.
+Every public page gets a canonical URL, a description, Open Graph and Twitter tags, and schema.org data for the site and the current page. A page or post can set its own SEO title and description in the Discovery box. Blank fields use the page title, the excerpt, or the start of the content. The home page uses the tagline when it has no custom description. Pages and posts also publish a breadcrumb trail, and a details/summary question becomes FAQ schema. Images without alt text use the page title.
+
+Settings → Discovery lists the values this site is already publishing and shows a share preview of the home page. Search engines use the normal WordPress sitemap. Answer and generative engines get `/llms.txt` and `/llms-full.txt`, linked from the page and from `robots.txt`. Training crawlers are limited to those two files. Search crawlers may read the public site. Author archives and search results stay out of the index. The files use this site’s name, description, pages, and posts.
 
 ### Site Health
 
@@ -137,7 +159,12 @@ The WordPress About screen stays the current core page. Slim WordPress is shown 
 | `wp-content/db.php` | SQLite drop-in |
 | `wp-content/plugins/sqlite-database-integration/` | MySQL-to-SQLite driver |
 | `wp-content/mu-plugins/slimword.php` | Bloat removal, welcome panel, salts, Site Health removal |
-| `wp-content/mu-plugins/slimword-guard.php` | Protection switch |
+| `wp-content/mu-plugins/slimword-guard.php` | Protection switch, login check, response headers |
+| `wp-content/mu-plugins/slimword-visitor.php` | Cookie notice and favicon |
+| `wp-content/mu-plugins/slimword-reading.php` | Accessibility panel |
+| `wp-content/mu-plugins/slimword-reading/a11y-widget.min.js` | Panel script |
+| `wp-content/advanced-cache.php` | Serves a saved public page |
+| `wp-content/mu-plugins/slimword-page-cache.php` | Writes and clears saved pages |
 | `wp-content/mu-plugins/slimword-discovery.php` | SEO, answer-engine, and generative-engine tags, plus Settings → Discovery |
 | `wp-content/mu-plugins/slimword-updates.php` | GitHub update check on a normal visit |
 | `wp-content/mu-plugins/slimword-cron.php` | Runs due tasks without `wp-cron.php` |

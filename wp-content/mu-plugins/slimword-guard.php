@@ -4,6 +4,23 @@
  * Description: One switch for the usual scans and login guesses.
  */
 
+add_action( 'send_headers', 'slimword_response_headers' );
+
+/**
+ * Tell the browser not to use the camera, microphone, or location.
+ * On HTTPS, keep later visits on HTTPS.
+ */
+function slimword_response_headers() {
+	if ( headers_sent() ) {
+		return;
+	}
+	header( 'Permissions-Policy: geolocation=(), microphone=(), camera=()' );
+	header( 'Cross-Origin-Opener-Policy: same-origin-allow-popups' );
+	if ( is_ssl() ) {
+		header( 'Strict-Transport-Security: max-age=31536000; includeSubDomains' );
+	}
+}
+
 add_action(
 	'admin_menu',
 	static function () {
@@ -99,6 +116,49 @@ add_filter(
 	3
 );
 
+add_action( 'login_form', 'slimword_login_fields' );
+
+add_filter(
+	'authenticate',
+	static function ( $user, $username ) {
+		if ( ! slimword_protect_enabled() || '' === (string) $username ) {
+			return $user;
+		}
+		if ( ! empty( $_POST['company_url'] ) ) {
+			return new WP_Error( 'slimword_honeypot', __( 'The login details are not correct.' ) );
+		}
+		$token  = isset( $_POST['slimword_check'] ) ? (string) wp_unslash( $_POST['slimword_check'] ) : '';
+		$answer = isset( $_POST['slimword_answer'] ) ? trim( (string) wp_unslash( $_POST['slimword_answer'] ) ) : '';
+		$expect = ( '' !== $token && preg_match( '/^[A-Za-z0-9]+$/', $token ) ) ? get_transient( 'slimword_captcha_' . $token ) : false;
+		if ( '' !== $token ) {
+			delete_transient( 'slimword_captcha_' . $token );
+		}
+		if ( false === $expect || (string) $expect !== $answer ) {
+			return new WP_Error( 'slimword_captcha', __( 'The check answer is not correct. Refresh the page for a new question.' ) );
+		}
+		return $user;
+	},
+	4,
+	2
+);
+
+/**
+ * Honeypot and a new math question on each login page load.
+ */
+function slimword_login_fields() {
+	if ( ! slimword_protect_enabled() ) {
+		return;
+	}
+	$left  = wp_rand( 2, 9 );
+	$right = wp_rand( 2, 9 );
+	$token = wp_generate_password( 16, false );
+	set_transient( 'slimword_captcha_' . $token, (string) ( $left + $right ), 10 * MINUTE_IN_SECONDS );
+	echo '<p style="position:absolute;left:-9999px" aria-hidden="true"><label>Company<input type="text" name="company_url" tabindex="-1" autocomplete="off" value=""></label></p>';
+	echo '<p><label for="slimword_answer">' . esc_html( sprintf( __( 'What is %1$d + %2$d?' ), $left, $right ) ) . '</label><br>';
+	echo '<input type="number" name="slimword_answer" id="slimword_answer" class="input" required autocomplete="off">';
+	echo '<input type="hidden" name="slimword_check" value="' . esc_attr( $token ) . '"></p>';
+}
+
 add_filter(
 	'authenticate',
 	static function ( $user, $username ) {
@@ -117,14 +177,19 @@ add_filter(
 
 add_action(
 	'wp_login_failed',
-	static function () {
+	static function ( $username, $error = null ) {
 		if ( ! slimword_protect_enabled() ) {
+			return;
+		}
+		if ( $error instanceof WP_Error && 'slimword_captcha' === $error->get_error_code() ) {
 			return;
 		}
 		$key   = 'slimword_login_' . md5( slimword_client_address() );
 		$count = (int) get_transient( $key );
 		set_transient( $key, $count + 1, 15 * MINUTE_IN_SECONDS );
-	}
+	},
+	10,
+	2
 );
 
 add_filter(
@@ -133,7 +198,7 @@ add_filter(
 		if ( ! slimword_protect_enabled() ) {
 			return $error;
 		}
-		if ( false !== strpos( $error, 'Too many attempts' ) ) {
+		if ( false !== strpos( $error, 'Too many attempts' ) || false !== strpos( $error, 'check answer' ) ) {
 			return $error;
 		}
 		return __( 'The login details are not correct.' );
@@ -158,7 +223,7 @@ function slimword_render_protect_page() {
 				<?php esc_html_e( 'Block common scans and login guesses' ); ?>
 			</label>
 			<p class="description">
-				<?php esc_html_e( 'Hides user names, stops repeated login tries, turns off the file editor and application passwords, and refuses requests for the config file. It does not scan every visitor.' ); ?>
+				<?php esc_html_e( 'Hides user names, stops repeated login tries, asks a new math question on each login, ignores bots that fill a hidden field, turns off the file editor and application passwords, and refuses requests for the config file. It does not scan every visitor.' ); ?>
 			</p>
 			<?php submit_button(); ?>
 		</form>
