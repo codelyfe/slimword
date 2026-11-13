@@ -73,7 +73,37 @@ function slimword_render_cache_page() {
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<?php wp_nonce_field( 'slimword_clear_cache' ); ?>
 			<input type="hidden" name="action" value="slimword_clear_cache">
-			<?php submit_button( __( 'Clear cache' ), 'delete', 'submit', false ); ?>
+		<?php submit_button( __( 'Clear cache' ), 'delete', 'submit', false ); ?>
+		</form>
+		<?php
+		$pages_on = ! is_file( ABSPATH . 'private/cache/page-cache.off' );
+		$ttl      = is_file( ABSPATH . 'private/cache/page-ttl.txt' ) ? (int) file_get_contents( ABSPATH . 'private/cache/page-ttl.txt' ) : 600;
+		$saved    = glob( ABSPATH . 'private/cache/pages/*.url' ) ?: array();
+		?>
+		<h2><?php esc_html_e( 'Saved pages' ); ?></h2>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php wp_nonce_field( 'slimword_page_cache_settings' ); ?>
+			<input type="hidden" name="action" value="slimword_page_cache_settings">
+			<label><input type="checkbox" name="enabled" value="1" <?php checked( $pages_on ); ?>> <?php esc_html_e( 'Save public pages' ); ?></label>
+			<label><?php esc_html_e( 'Minutes' ); ?> <input type="number" min="1" name="minutes" value="<?php echo esc_attr( (string) max( 1, (int) round( $ttl / 60 ) ) ); ?>"></label>
+			<?php submit_button( __( 'Save' ), 'secondary', 'submit', false ); ?>
+		</form>
+		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Address' ); ?></th><th><?php esc_html_e( 'Saved' ); ?></th></tr></thead><tbody>
+		<?php if ( ! $saved ) : ?><tr><td colspan="2"><?php esc_html_e( 'No pages saved.' ); ?></td></tr><?php endif; ?>
+		<?php foreach ( array_slice( $saved, 0, 50 ) as $url_file ) : ?>
+			<tr>
+				<td><code><?php echo esc_html( (string) file_get_contents( $url_file ) ); ?></code></td>
+				<td><?php echo esc_html( wp_date( 'Y-m-d H:i', (int) filemtime( $url_file ) ) ); ?></td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody></table>
+		<h2><?php esc_html_e( 'Database' ); ?></h2>
+		<p><a class="button" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=slimword_export_db' ), 'slimword_export_db' ) ); ?>"><?php esc_html_e( 'Download database' ); ?></a></p>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+			<?php wp_nonce_field( 'slimword_import_db' ); ?>
+			<input type="hidden" name="action" value="slimword_import_db">
+			<input type="file" name="database" accept=".sqlite">
+			<?php submit_button( __( 'Replace database' ), 'delete', 'submit', false ); ?>
 		</form>
 		<table class="widefat striped" style="margin-top:16px">
 			<thead>
@@ -124,4 +154,72 @@ function slimword_render_cache_page() {
 		<?php endif; ?>
 	</div>
 	<?php
+}
+
+add_action( 'admin_post_slimword_page_cache_settings', 'slimword_page_cache_settings' );
+add_action( 'admin_post_slimword_export_db', 'slimword_export_db' );
+add_action( 'admin_post_slimword_import_db', 'slimword_import_db' );
+
+/**
+ * Save the page-cache switch and lifetime.
+ */
+function slimword_page_cache_settings() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to manage these options.' ), 403 );
+	}
+	check_admin_referer( 'slimword_page_cache_settings' );
+	$dir = ABSPATH . 'private/cache';
+	if ( ! is_dir( $dir ) ) {
+		wp_mkdir_p( $dir );
+	}
+	$off = $dir . '/page-cache.off';
+	if ( empty( $_POST['enabled'] ) ) {
+		file_put_contents( $off, '1' );
+	} elseif ( is_file( $off ) ) {
+		unlink( $off );
+	}
+	$minutes = isset( $_POST['minutes'] ) ? max( 1, (int) $_POST['minutes'] ) : 10;
+	file_put_contents( $dir . '/page-ttl.txt', (string) ( $minutes * 60 ) );
+	wp_safe_redirect( admin_url( 'options-general.php?page=slimword-cache' ) );
+	exit;
+}
+
+/**
+ * Download the live SQLite file.
+ */
+function slimword_export_db() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to manage these options.' ), 403 );
+	}
+	check_admin_referer( 'slimword_export_db' );
+	$path = ABSPATH . 'private/database.sqlite';
+	if ( ! is_file( $path ) ) {
+		wp_die( esc_html__( 'The database file was not found.' ), 404 );
+	}
+	header( 'Content-Type: application/octet-stream' );
+	header( 'Content-Disposition: attachment; filename="database.sqlite"' );
+	readfile( $path );
+	exit;
+}
+
+/**
+ * Replace the database after keeping a copy.
+ */
+function slimword_import_db() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Sorry, you are not allowed to manage these options.' ), 403 );
+	}
+	check_admin_referer( 'slimword_import_db' );
+	if ( empty( $_FILES['database']['tmp_name'] ) || ! is_uploaded_file( $_FILES['database']['tmp_name'] ) ) {
+		wp_die( esc_html__( 'Choose a SQLite file.' ) );
+	}
+	if ( function_exists( 'slimword_backup_database' ) ) {
+		slimword_backup_database();
+	}
+	$dest = ABSPATH . 'private/database.sqlite';
+	if ( ! move_uploaded_file( $_FILES['database']['tmp_name'], $dest ) ) {
+		wp_die( esc_html__( 'The database could not be replaced.' ) );
+	}
+	wp_safe_redirect( admin_url( 'options-general.php?page=slimword-cache' ) );
+	exit;
 }

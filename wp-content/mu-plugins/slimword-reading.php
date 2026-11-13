@@ -10,7 +10,7 @@ add_action( 'wp_enqueue_scripts', 'slimword_reading_script', 40 );
  * Load the accessibility panel on public pages.
  */
 function slimword_reading_script() {
-	if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || is_feed() || is_embed() ) {
+	if ( is_admin() || wp_doing_ajax() || wp_doing_cron() || is_feed() || is_embed() || ! slimword_reading_enabled() ) {
 		return;
 	}
 	$path = __DIR__ . '/slimword-reading/a11y-widget.min.js';
@@ -32,10 +32,14 @@ function slimword_reading_script() {
 add_action(
 	'wp_head',
 	static function () {
+		if ( ! slimword_reading_enabled() ) {
+			return;
+		}
 		if ( is_admin() ) {
 			return;
 		}
-		echo '<style>#a11y-widget-root{position:fixed!important;z-index:1000000!important;left:18px!important;bottom:18px!important;right:auto!important;width:auto!important;height:auto!important;pointer-events:none}#a11y-widget-root *{pointer-events:auto}</style>';
+		$side = 'right' === get_option( 'slimword_reading_corner', 'left' ) ? 'right:18px!important;left:auto!important' : 'left:18px!important;right:auto!important';
+		echo '<style>#a11y-widget-root{position:fixed!important;z-index:1000000!important;' . $side . ';bottom:18px!important;width:auto!important;height:auto!important;pointer-events:none}#a11y-widget-root *{pointer-events:auto}</style>';
 	},
 	99
 );
@@ -46,7 +50,7 @@ add_action( 'wp_footer', 'slimword_reading_fit', 99999 );
  * Make the panel's choices apply to WordPress themes, and keep the panel and cookie notice usable.
  */
 function slimword_reading_fit() {
-	if ( is_admin() ) {
+	if ( is_admin() || ! slimword_reading_enabled() ) {
 		return;
 	}
 	$css = '

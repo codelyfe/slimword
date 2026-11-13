@@ -40,14 +40,18 @@ function slimword_page_cache_store() {
 	}
 	$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) parse_url( wp_unslash( $_SERVER['REQUEST_URI'] ), PHP_URL_PATH ) : '/';
 	$host = isset( $_SERVER['HTTP_HOST'] ) ? (string) $_SERVER['HTTP_HOST'] : '';
-	$file = $dir . '/' . sha1( $host . $path ) . '.html';
-	file_put_contents( $file, $html, LOCK_EX );
+	$hash = sha1( $host . $path );
+	file_put_contents( $dir . '/' . $hash . '.html', $html, LOCK_EX );
+	file_put_contents( $dir . '/' . $hash . '.url', $host . $path, LOCK_EX );
 }
 
 /**
  * @return bool
  */
 function slimword_page_cache_allowed() {
+	if ( is_file( ABSPATH . 'private/cache/page-cache.off' ) ) {
+		return false;
+	}
 	if ( is_user_logged_in() || is_admin() || is_preview() || is_feed() || is_search() || is_404() ) {
 		return false;
 	}
@@ -73,7 +77,7 @@ function slimword_page_cache_flush() {
 		return;
 	}
 	foreach ( $files as $file ) {
-		if ( substr( $file, -5 ) === '.html' ) {
+		if ( substr( $file, -5 ) === '.html' || substr( $file, -4 ) === '.url' ) {
 			unlink( $dir . '/' . $file );
 		}
 	}

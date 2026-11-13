@@ -4,7 +4,7 @@
  * WordPress.org core updates are not used.
  */
 if ( ! defined( 'SLIMWORD_VERSION' ) ) {
-	define( 'SLIMWORD_VERSION', '1.0.14' );
+	define( 'SLIMWORD_VERSION', '1.0.15' );
 }
 if ( ! defined( 'SLIMWORD_GITHUB_REPO' ) ) {
 	define( 'SLIMWORD_GITHUB_REPO', 'codelyfe/slimword' );

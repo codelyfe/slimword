@@ -60,6 +60,7 @@ function slimword_cookie_settings() {
 			'default'           => array(),
 		)
 	);
+	register_setting( 'slimword_cookies', 'slimword_cookie_rows', array( 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ) );
 }
 
 /**
@@ -142,6 +143,8 @@ function slimword_cookie_page() {
 					</td>
 				</tr>
 			</table>
+			<p><label><?php esc_html_e( 'Cookie page rows. One line each: name | why | how long' ); ?><br>
+			<textarea class="large-text" rows="6" name="slimword_cookie_rows"><?php echo esc_textarea( (string) get_option( 'slimword_cookie_rows', '' ) ); ?></textarea></label></p>
 			<?php submit_button(); ?>
 		</form>
 	</div>
@@ -176,18 +179,19 @@ function slimword_cookie_notice() {
 			<?php endif; ?>
 		</p>
 		<button type="button" id="slimword-cookie-ok" style="background:<?php echo esc_attr( $opt['button_bg'] ); ?>;color:<?php echo esc_attr( $opt['button_text'] ); ?>;border:0;padding:6px 12px;cursor:pointer"><?php echo esc_html( $opt['button'] ); ?></button>
+		<button type="button" id="slimword-cookie-no" style="background:transparent;color:inherit;border:1px solid currentColor;padding:6px 12px;cursor:pointer"><?php esc_html_e( 'Reject' ); ?></button>
 	</div>
 	<script>
 	(function(){
-		if (document.cookie.indexOf('slimword_consent=accepted') !== -1) return;
+		if (document.cookie.indexOf('slimword_consent=') !== -1) return;
 		var box = document.getElementById('slimword-cookie');
 		var btn = document.getElementById('slimword-cookie-ok');
+		var no = document.getElementById('slimword-cookie-no');
 		if (!box || !btn) return;
 		box.hidden = false;
-		btn.addEventListener('click', function(){
-			document.cookie = 'slimword_consent=accepted; Path=/; Max-Age=15552000; SameSite=Lax';
-			box.hidden = true;
-		});
+		function choose(value){document.cookie='slimword_consent='+value+'; Path=/; Max-Age=15552000; SameSite=Lax';box.hidden=true;}
+		btn.addEventListener('click', function(){choose('accepted')});
+		if (no) no.addEventListener('click', function(){choose('rejected')});
 	})();
 	</script>
 	<?php
@@ -221,13 +225,25 @@ function slimword_cookies_page() {
 	echo '<h1>' . esc_html__( 'Cookies' ) . '</h1>';
 	echo '<p>' . esc_html__( 'A cookie is a small note your browser keeps for this site. Slim WordPress does not use advertising or analytics cookies. The cookies below are the ones this site can set.' ) . '</p>';
 	echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Cookie' ) . '</th><th>' . esc_html__( 'Why it is set' ) . '</th><th>' . esc_html__( 'How long it lasts' ) . '</th></tr></thead><tbody>';
-	$rows = array(
-		array( 'slimword_consent', __( 'Remembers that you accepted the cookie notice. It is set only when you click the button.' ), __( '6 months' ) ),
+	$saved = (string) get_option( 'slimword_cookie_rows', '' );
+	$rows  = array();
+	if ( '' !== trim( $saved ) ) {
+		foreach ( preg_split( '/\r\n|\r|\n/', $saved ) as $line ) {
+			$parts = array_map( 'trim', explode( '|', $line ) );
+			if ( count( $parts ) >= 3 ) {
+				$rows[] = $parts;
+			}
+		}
+	}
+	if ( ! $rows ) {
+		$rows = array(
+		array( 'slimword_consent', __( 'Remembers that you accepted or rejected the cookie notice. It is set only when you click a button.' ), __( '6 months' ) ),
 		array( 'wordpress_test_cookie', __( 'Checks that your browser will accept cookies. WordPress sets it on the login screen and removes it after the check.' ), __( 'Until you close the browser' ) ),
 		array( 'wordpress_logged_in_*', __( 'Keeps you signed in. It is set only after a successful login.' ), __( '2 days, or 14 days if you choose Remember Me' ) ),
 		array( 'wordpress_sec_*', __( 'A second login cookie that makes the first one harder to reuse from another browser.' ), __( 'The same as the login cookie' ) ),
 		array( 'comment_author_*, comment_author_email_*, comment_author_url_*', __( 'Fills in your name, email, and site the next time you comment. These are set only when you post a comment.' ), __( '1 year' ) ),
-	);
+		);
+	}
 	foreach ( $rows as $row ) {
 		echo '<tr><td><code>' . esc_html( $row[0] ) . '</code></td><td>' . esc_html( $row[1] ) . '</td><td>' . esc_html( $row[2] ) . '</td></tr>';
 	}

@@ -14,6 +14,19 @@ function slimword_comments_disabled() {
 }
 
 add_action(
+	'update_option_slimword_disable_comments',
+	static function ( $old, $value ) {
+		if ( '1' !== (string) $value ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->query( "UPDATE {$wpdb->posts} SET comment_status = 'closed', ping_status = 'closed'" );
+	},
+	10,
+	2
+);
+
+add_action(
 	'admin_menu',
 	static function () {
 		add_options_page(

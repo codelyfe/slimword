@@ -4,7 +4,42 @@
  * Description: Universal SEO, answer-engine, and generative-engine tags for any site.
  */
 
+add_action( 'wp_body_open', 'slimword_visible_breadcrumbs' );
+
+/**
+ * Visible trail for the current page or post.
+ */
+function slimword_visible_breadcrumbs() {
+	if ( ! is_singular() ) {
+		return;
+	}
+	$post = get_queried_object();
+	if ( ! $post instanceof WP_Post ) {
+		return;
+	}
+	$crumbs = slimword_discovery_breadcrumbs( $post );
+	echo '<nav class="slimword-breadcrumbs" aria-label="' . esc_attr__( 'Breadcrumb' ) . '" style="max-width:720px;margin:16px auto;padding:0 16px">';
+	$links = array();
+	foreach ( $crumbs as $crumb ) {
+		$links[] = '<a href="' . esc_url( $crumb['item'] ) . '">' . esc_html( $crumb['name'] ) . '</a>';
+	}
+	echo wp_kses_post( implode( ' / ', $links ) );
+	echo '</nav>';
+}
+
 add_action( 'wp_head', 'slimword_discovery_head', 5 );
+add_action( 'admin_init', 'slimword_discovery_settings' );
+
+/**
+ * Discovery fields.
+ */
+function slimword_discovery_settings() {
+	foreach ( array( 'slimword_social_urls', 'slimword_train_bots', 'slimword_search_bots' ) as $option ) {
+		register_setting( 'slimword_discovery', $option, array( 'type' => 'string', 'sanitize_callback' => 'sanitize_textarea_field' ) );
+	}
+	register_setting( 'slimword_discovery', 'slimword_share_image', array( 'type' => 'integer', 'sanitize_callback' => 'absint' ) );
+}
+
 add_action( 'admin_menu', 'slimword_discovery_menu', 99 );
 add_filter( 'robots_txt', 'slimword_discovery_robots', 99, 2 );
 add_filter( 'wp_robots', 'slimword_discovery_wp_robots' );
@@ -70,6 +105,10 @@ function slimword_discovery_head() {
 	$email = get_option( 'admin_email' );
 	if ( is_email( $email ) ) {
 		$graph[0]['email'] = $email;
+	}
+	$same = array_filter( array_map( 'trim', explode( "\n", (string) get_option( 'slimword_social_urls', '' ) ) ) );
+	if ( $same ) {
+		$graph[0]['sameAs'] = array_values( $same );
 	}
 	if ( is_front_page() ) {
 		$graph[] = array(
@@ -198,7 +237,7 @@ function slimword_discovery_breadcrumbs( $post ) {
  * @return array<int, array<string, mixed>>
  */
 function slimword_discovery_faqs( $post ) {
-	$content = (string) $post->post_content;
+	$content = do_blocks( (string) $post->post_content );
 	if ( $content === '' || stripos( $content, '<summary' ) === false ) {
 		return array();
 	}
@@ -231,7 +270,7 @@ add_action( 'save_post', 'slimword_discovery_save_meta' );
  * Title and description fields on pages and posts.
  */
 function slimword_discovery_meta_box() {
-	foreach ( array( 'post', 'page' ) as $type ) {
+	foreach ( get_post_types( array( 'public' => true ) ) as $type ) {
 		add_meta_box(
 			'slimword-seo',
 			__( 'Discovery' ),
@@ -328,6 +367,9 @@ function slimword_discovery_image() {
 		}
 	}
 	$logo = (int) get_theme_mod( 'custom_logo' );
+	if ( ! $logo ) {
+		$logo = (int) get_option( 'slimword_share_image' );
+	}
 	if ( $logo ) {
 		$image = wp_get_attachment_image_url( $logo, 'full' );
 		if ( $image ) {
@@ -335,6 +377,14 @@ function slimword_discovery_image() {
 		}
 	}
 	return '';
+}
+
+function slimword_bot_list( $option, $defaults ) {
+	$saved = get_option( $option, '' );
+	if ( ! is_string( $saved ) || trim( $saved ) === '' ) {
+		return $defaults;
+	}
+	return array_values( array_filter( array_map( 'trim', explode( "\n", $saved ) ) ) );
 }
 
 /**
@@ -362,13 +412,13 @@ function slimword_discovery_robots( $output, $public ) {
 		'Disallow: /feed/',
 		'Disallow: /*/feed/',
 	);
-	foreach ( array( 'GPTBot', 'ClaudeBot', 'Google-Extended', 'Applebot-Extended', 'CCBot' ) as $agent ) {
+	foreach ( slimword_bot_list( 'slimword_train_bots', array( 'GPTBot', 'ClaudeBot', 'Google-Extended', 'Applebot-Extended', 'CCBot' ) ) as $agent ) {
 		$lines[] = 'User-agent: ' . $agent;
 		$lines[] = 'Allow: ' . $llms;
 		$lines[] = 'Allow: ' . $full;
 		$lines[] = 'Disallow: /';
 	}
-	foreach ( array( 'PerplexityBot', 'ChatGPT-User', 'OAI-SearchBot', 'Claude-SearchBot' ) as $agent ) {
+	foreach ( slimword_bot_list( 'slimword_search_bots', array( 'PerplexityBot', 'ChatGPT-User', 'OAI-SearchBot', 'Claude-SearchBot' ) ) as $agent ) {
 		$lines[] = 'User-agent: ' . $agent;
 		$lines[] = 'Allow: ' . $llms;
 		$lines[] = 'Allow: ' . $full;
@@ -564,9 +614,22 @@ function slimword_discovery_page() {
 	?>
 	<div class="wrap">
 		<h1><?php esc_html_e( 'Discovery' ); ?></h1>
+		<form method="post" action="options.php">
+			<?php
+			settings_fields( 'slimword_discovery' );
+			?>
+			<p><label><?php esc_html_e( 'Social profile URLs, one per line' ); ?><br><textarea name="slimword_social_urls" class="large-text" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_social_urls', '' ) ); ?></textarea></label></p>
+			<p><label><?php esc_html_e( 'Default share image attachment ID' ); ?> <input name="slimword_share_image" value="<?php echo esc_attr( (string) get_option( 'slimword_share_image', '' ) ); ?>"></label></p>
+			<p><label><?php esc_html_e( 'Training crawlers, one per line' ); ?><br><textarea name="slimword_train_bots" class="large-text" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_train_bots', '' ) ); ?></textarea></label></p>
+			<p><label><?php esc_html_e( 'Search crawlers, one per line' ); ?><br><textarea name="slimword_search_bots" class="large-text" rows="3"><?php echo esc_textarea( (string) get_option( 'slimword_search_bots', '' ) ); ?></textarea></label></p>
+			<?php submit_button( __( 'Save discovery' ) ); ?>
+		</form>
 		<p><?php esc_html_e( 'These are the SEO, answer-engine, and generative-engine values this site is already publishing.' ); ?></p>
 		<?php
-		$front_id    = (int) get_option( 'page_on_front' );
+		$front_id    = isset( $_GET['preview_id'] ) ? (int) $_GET['preview_id'] : (int) get_option( 'page_on_front' );
+		if ( $front_id && 'publish' !== get_post_status( $front_id ) ) {
+			$front_id = (int) get_option( 'page_on_front' );
+		}
 		$share_title = $name;
 		$share_desc  = $desc;
 		$share_image = '';
@@ -593,6 +656,11 @@ function slimword_discovery_page() {
 		}
 		?>
 		<h2><?php esc_html_e( 'Share preview' ); ?></h2>
+		<form method="get">
+			<input type="hidden" name="page" value="slimword-discovery">
+			<label><?php esc_html_e( 'Published page or post ID' ); ?> <input name="preview_id" value="<?php echo esc_attr( (string) ( isset( $_GET['preview_id'] ) ? (int) $_GET['preview_id'] : '' ) ); ?>"></label>
+			<?php submit_button( __( 'Preview' ), 'secondary', 'submit', false ); ?>
+		</form>
 		<div style="max-width:480px;border:1px solid #dcdcde;background:#fff">
 			<?php if ( $share_image !== '' ) : ?>
 				<img src="<?php echo esc_url( $share_image ); ?>" alt="" style="display:block;width:100%;height:220px;object-fit:cover">

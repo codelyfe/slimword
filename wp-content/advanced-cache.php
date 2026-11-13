@@ -5,6 +5,9 @@
 if ( ! defined( 'ABSPATH' ) || PHP_SAPI === 'cli' ) {
 	return;
 }
+if ( is_file( ABSPATH . 'private/cache/page-cache.off' ) ) {
+	return;
+}
 if ( ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) !== 'GET' ) {
 	return;
 }
@@ -18,13 +21,19 @@ if ( ! empty( $_GET ) ) {
 }
 foreach ( $_COOKIE ?? array() as $name => $value ) {
 	unset( $value );
-	if ( strpos( (string) $name, 'wordpress_logged_in_' ) === 0 || strpos( (string) $name, 'comment_author' ) === 0 ) {
+	$name = (string) $name;
+	if ( strpos( $name, 'wordpress_logged_in_' ) === 0 || strpos( $name, 'wordpress_sec_' ) === 0 || strpos( $name, 'comment_author' ) === 0 ) {
 		return;
 	}
 }
+$ttl  = 600;
+$ttl_file = ABSPATH . 'private/cache/page-ttl.txt';
+if ( is_file( $ttl_file ) ) {
+	$ttl = max( 60, (int) file_get_contents( $ttl_file ) );
+}
 $key  = sha1( ( $_SERVER['HTTP_HOST'] ?? '' ) . $path );
 $file = ABSPATH . 'private/cache/pages/' . $key . '.html';
-if ( is_file( $file ) && ( time() - (int) filemtime( $file ) ) < 600 ) {
+if ( is_file( $file ) && ( time() - (int) filemtime( $file ) ) < $ttl ) {
 	header( 'X-Slimword-Cache: hit' );
 	readfile( $file );
 	exit;

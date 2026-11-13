@@ -21,8 +21,10 @@ function slimword_light_ajax() {
 
 	$hook = is_user_logged_in() ? 'wp_ajax_' . $action : 'wp_ajax_nopriv_' . $action;
 	if ( ! has_action( $hook ) ) {
+		slimword_ajax_note( $action, 'admin' );
 		return;
 	}
+	slimword_ajax_note( $action, 'light' );
 
 	send_origin_headers();
 	header( 'Content-Type: text/html; charset=' . get_option( 'blog_charset' ) );
@@ -32,4 +34,19 @@ function slimword_light_ajax() {
 
 	do_action( $hook );
 	wp_die( '0' );
+}
+
+/**
+ * @param string $action Ajax action.
+ * @param string $path   light or admin.
+ */
+function slimword_ajax_note( $action, $path ) {
+	$log   = get_option( 'slimword_ajax_log', array() );
+	$log   = is_array( $log ) ? $log : array();
+	$log[] = array(
+		'time'   => time(),
+		'action' => substr( $action, 0, 80 ),
+		'path'   => $path,
+	);
+	update_option( 'slimword_ajax_log', array_slice( $log, -40 ), false );
 }
